@@ -6,9 +6,11 @@ import matplotlib.pyplot as plt
 from matplotlib import patches
 
 import skimage
-
+from skimage import img_as_ubyte
 from skimage import io
 from skimage.util.shape import view_as_blocks
+from skimage import transform
+from scipy import optimize
 
 from numpy.lib.stride_tricks import as_strided
 
@@ -144,10 +146,24 @@ class LandmarkSelector:
 
         self.ax.figure.canvas.draw()
 
+    @property
+    def landmarks(self):
+        return np.array(zip(self.xs, self.ys))
 
 
+def get_transform(x):
+    dx, dy, s, rot = x
+    return transform.AffineTransform(rotation=rot,
+                                     scale=(s, s),
+                                     translation=(dx, dy))
+def landmark_error(coords, coords_ref, transf_factory):
 
+    def _calc_error(params):
+        t = transf_factory(params)
+        err = (t(coords)-np.array(coords_ref)).flatten()
+        return err
 
+    return _calc_error
 if __name__ == "__main__":
     
     path = '/Users/bartosz/Desktop/TREE/registration/'
@@ -159,14 +175,35 @@ if __name__ == "__main__":
 
     n_blks = img1.shape[0]/8, img1.shape[1]/8
     print img1.shape
+    
+    chboard_before = gen_checkerboard(img1, img2, n_blks)
+    plt.figure()
+    plt.imshow(chboard_before)
+    plt.show()
 
     plt.figure()
-    ax1=plt.subplot(221)
+    ax1=plt.subplot(121)
     im1_sel=LandmarkSelector(ax1, img1)
-    ax2=plt.subplot(222)
+    ax1.set_title('Target')
+    ax2=plt.subplot(122)
+    ax2.set_title('Reference')
     im2_sel=LandmarkSelector(ax2, img2)
-    ax3= plt.subplot(223)
 
-    im_checkerboard = gen_checkerboard(img1, img2, n_blks)
-    imshow(im_checkerboard, ax3)
     plt.show()
+    coords_reg = im1_sel.landmarks
+    coords_ref = im2_sel.landmarks
+
+    err_func = landmark_error(coords_reg, coords_ref, get_transform)
+
+    transform_params,_ = optimize.leastsq(err_func, (0,0,1,0)) 
+    est_transform = get_transform(transform_params)
+
+    from warps_py import warp_int 
+    img_reg = warp_int(img1, est_transform.inverse)
+
+    plt.figure()
+    chboard_after = gen_checkerboard(img_reg.copy(), img2, n_blks)
+    plt.imshow(chboard_after)
+    plt.show()
+
+
