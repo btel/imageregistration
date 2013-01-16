@@ -13,6 +13,7 @@ from skimage import transform
 from scipy import optimize
 
 from numpy.lib.stride_tricks import as_strided
+from numpy import nan
 
 import os
 from itertools import cycle
@@ -65,16 +66,37 @@ class LandmarkSelector:
                                        self._onrelease)
 
     def _onclick(self, event):
-        if event.inaxes==self.ax: 
-            x,y = event.xdata, event.ydata
-            dist = (np.abs(np.array(self.xs)-x)+
-                    np.abs(np.array(self.ys)-y))
-            if (dist<self.picker_radius).any():
-                i = np.argmin(dist)
-                self._dragged = self.markers[i]
-                self.zoom_image((x,y))
-            else:
-                self.add_landmark(x,y)
+        if event.inaxes==self.ax:
+            if event.button==1:
+                self._left_click(event)
+            elif event.button==2:
+                self._right_click(event)
+
+    def _picker(self, xy):
+        x, y = xy
+        dist = (np.abs(np.array(self.xs)-x)+
+                np.abs(np.array(self.ys)-y))
+        if (dist<self.picker_radius).any():
+            return np.argmin(np.ma.masked_invalid(dist))
+        else:
+            return
+
+
+    def _left_click(self, event):
+        x,y = event.xdata, event.ydata
+        artist_idx = self._picker((x,y))
+        if artist_idx is not None:
+            self._dragged = self.markers[artist_idx]
+        else:
+            self._dragged = self.add_landmark(x,y)
+        self.zoom_image((x,y))
+    
+    def _right_click(self, event):
+        x,y = event.xdata, event.ydata
+        artist_idx = self._picker((x,y))
+        
+        if artist_idx is not None:
+            self.remove_landmark(artist_idx)
 
 
     def _onmotion(self, event):
@@ -97,7 +119,7 @@ class LandmarkSelector:
         new_height = height*1./zoom
         new_width = width*1./zoom
 
-        #(y-top)/new_height = y*1./height
+        #solution to equation (y-top)/new_height == y*1./height
         top = y*(-1./height*new_height+1)
         left = x*(-1./width*new_width+1)
 
@@ -106,6 +128,18 @@ class LandmarkSelector:
         self._dragged.set_radius(self.marker_radius*1./zoom)
         self.ax.figure.canvas.draw()
 
+    def remove_landmark(self, i):
+        
+        #removing just replaces coordinates with nans and
+        # removes the artist from axes, but not from the list
+        # (we need it to keep its color)
+        self.xs[i] = nan
+        self.ys[i] = nan
+        
+        m = self.markers[i]
+        m.remove()
+        
+        self.ax.figure.canvas.draw()
 
 
     def update_landmark(self, i, x, y):
@@ -115,7 +149,12 @@ class LandmarkSelector:
        
         m = self.markers[i]
         color = m.get_facecolor()
-        m.remove()
+        
+        try:
+            m.remove()
+        except ValueError:
+            #marker was already removed
+            pass
 
         new_marker = self._add_patch((x,y), color)
         new_marker.set_radius(self.marker_radius*1./self.zoom_factor)
@@ -130,10 +169,15 @@ class LandmarkSelector:
                               facecolor=color)
         self.ax.add_patch(patch)
         return patch
-
-
     
     def add_landmark(self, x,y):
+        
+        try:
+            i = self.xs.index(nan)
+            patch = self.update_landmark(i, x,y)
+            return patch
+        except ValueError:
+            pass
 
         self.xs.append(x)
         self.ys.append(y)
@@ -142,13 +186,19 @@ class LandmarkSelector:
 
         patch = self._add_patch((x,y), color)
         self.markers.append(patch)
-        
 
         self.ax.figure.canvas.draw()
 
+        return patch
+
     @property
     def landmarks(self):
-        return np.array(zip(self.xs, self.ys))
+        if not self.xs or (np.isnan(self.xs)).all():
+            return np.zeros((0,0))
+        landmarks =  np.array(zip(self.xs, self.ys))
+        landmarks = landmarks[~np.isnan(landmarks[:,0]),:]
+        return landmarks
+
 
 
 def get_transform(x):
