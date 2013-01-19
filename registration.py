@@ -40,7 +40,7 @@ def mean_sq_diff(img1, img2):
 def corr(img1, img2):
     #img2 = img2[img1>0]
     #img1 = img1[img1>0]
-    return -np.corrcoef(img1, img2)[0][1]
+    return -np.corrcoef(img1.flatten(), img2.flatten())[0][1]
 
 def transform_and_compare(img, img_ref, params, obj_func=mean_sq_diff):
     #new_transform = get_transform(*params)

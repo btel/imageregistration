@@ -6,11 +6,15 @@ import matplotlib.pyplot as plt
 from matplotlib import patches
 
 import skimage
-from skimage import img_as_ubyte
+from skimage import img_as_ubyte, img_as_float
 from skimage import io
 from skimage.util.shape import view_as_blocks
 from skimage import transform
+
+from registration import corr
+
 from scipy import optimize
+from scipy import ndimage
 
 from numpy.lib.stride_tricks import as_strided
 from numpy import nan
@@ -18,6 +22,8 @@ from numpy import nan
 import os
 from itertools import cycle
 
+from scipy.stats import gaussian_kde
+from scipy.integrate import dblquad
 
 def gen_checkerboard(img1, img2, n_blks):
     img_check = view_as_blocks(img1.copy(), n_blks+(3,))
@@ -32,6 +38,63 @@ def imshow(im, ax):
     ax.imshow(im)
     ax.set_xticks([])
     ax.set_yticks([])
+
+
+def kernel_correlation(img, patch):
+    
+    patch = patch.copy()
+    patch -= patch.mean()
+    patch /= patch.std()
+
+    def _kernel(p1,p2):
+        p1 = p1.copy()
+        p1 -= p1.mean(); p1 /= p1.std()
+        c = np.mean(p1*p2)
+        return c
+    return _kernel
+
+def kernel_mutualinformation(img,patch, n=20):
+    bins_x = np.linspace(img.min(), img.max(), n)
+    bins_y = np.linspace(patch.min(), patch.max(), n)
+    eps = np.finfo(np.float64).eps
+    dx = (img.max()-img.min())*1./n 
+    dy = (patch.max()-patch.min())*1./n 
+    
+    def _kernel(x, y):
+        x = x.flatten()
+        y = y.flatten()
+        nx, _ = np.histogram(x, bins_x, density=True)
+        ny, _ = np.histogram(y, bins_y, density=True)
+        nxy, _,_ = np.histogram2d(x,y,[bins_x, bins_y])
+        nxy /= (np.sum(nxy)*dx*dy)
+        aux = nxy*1./(nx[:,None]*ny[None,:])
+        aux[np.isnan(aux)] = 0
+        mi = np.sum(nxy*np.log(aux+eps))*dx*dy
+        return mi
+
+    return _kernel
+
+def correlate(img, patch,kernel=kernel_correlation):
+    r,c = img.shape
+
+    out = np.zeros((r,c), dtype=img.dtype)
+
+    p_r, p_c = patch.shape
+   
+    K = kernel(img, patch)
+    for i in range(r):
+        for j in range(c):
+            r_l = np.maximum(0,i-p_r/2) 
+            r_h = np.minimum(r,i+p_r-p_r/2) 
+            c_l = np.maximum(0,j-p_c/2) 
+            c_h = np.minimum(c,j+p_c-p_c/2) 
+            p = patch[r_l-i+p_r/2:r_h-i+p_r/2,
+                      c_l-j+p_c/2:c_h-j+p_c/2]
+            im = img[r_l:r_h, c_l:c_h] 
+            out[i,j] = K(im, p)
+
+    out[np.isnan(out)]=0
+    return out
 
 
 class LandmarkSelector:
@@ -110,6 +173,9 @@ class LandmarkSelector:
             self._dragged.set_radius(self.marker_radius)
             self._dragged = None
             self.ax.autoscale(True)
+            self.marker_radius *= self.zoom_factor
+            for m in self.markers:
+                m.set_radius(self.marker_radius)
             self.ax.figure.canvas.draw()
 
     def zoom_image(self, center):
@@ -125,7 +191,9 @@ class LandmarkSelector:
 
         self.ax.set_xlim([left, left+new_width])
         self.ax.set_ylim([top+new_height, top])
-        self._dragged.set_radius(self.marker_radius*1./zoom)
+        self.marker_radius /= 1.*zoom
+        for m in self.markers:
+            m.set_radius(self.marker_radius)
         self.ax.figure.canvas.draw()
 
     def remove_landmark(self, i):
@@ -144,8 +212,8 @@ class LandmarkSelector:
 
     def update_landmark(self, i, x, y):
 
-        self.xs[i] = x
-        self.ys[i] = y
+        self.xs[i] = int(x)
+        self.ys[i] = int(y)
        
         m = self.markers[i]
         color = m.get_facecolor()
@@ -157,7 +225,6 @@ class LandmarkSelector:
             pass
 
         new_marker = self._add_patch((x,y), color)
-        new_marker.set_radius(self.marker_radius*1./self.zoom_factor)
         self.markers[i] = new_marker
         self.ax.figure.canvas.draw()
 
@@ -179,8 +246,8 @@ class LandmarkSelector:
         except ValueError:
             pass
 
-        self.xs.append(x)
-        self.ys.append(y)
+        self.xs.append(int(x))
+        self.ys.append(int(y))
         
         color = next(self.color_iter)
 
@@ -191,6 +258,41 @@ class LandmarkSelector:
 
         return patch
 
+    def autofind_landmark(self, img_patch, xy=None, r=100):
+        sub_sample = 5
+        img_float = img_as_float(self.img[:,:,:].mean(2))
+        h,w = img_float.shape
+        if xy is not None:
+            x,y = xy
+            b,l = np.maximum([0,0], [y-r,x-r])
+            t,r = np.minimum([h,w], [y+r,x+r])
+            img_float = img_float[b:t, l:r]
+        else:
+            l, b = 0,0
+        
+        img_float = img_float[::sub_sample,::sub_sample]
+        img_patch = img_patch[::sub_sample,::sub_sample]
+
+        corr = correlate(img_float, img_patch,
+                         kernel=kernel_mutualinformation)
+        corr /= img_patch.shape[0]*img_patch.shape[1]
+        y, x = np.unravel_index(corr.argmax(), corr.shape)
+        self.add_landmark(int((x+0.5)*sub_sample)+l,int((y+0.5)*sub_sample)+b)
+        return corr
+
+    def get_patch(self, xy, sz=10):
+        x, y = xy
+        h, w = self.img.shape[:2]
+
+        xmin = np.maximum(0, x-sz)
+        xmax = np.minimum(x+sz, w)
+        ymin = np.maximum(0, y-sz)
+        ymax = np.minimum(y+sz, h)
+
+        img_patch = self.img[ymin:ymax, xmin:xmax, :].mean(2) 
+        return img_as_float(img_patch)
+
+        
     @property
     def landmarks(self):
         if not self.xs or (np.isnan(self.xs)).all():
@@ -219,6 +321,7 @@ if __name__ == "__main__":
     path = '/Users/bartosz/Desktop/TREE/registration/'
     fname1 = 'TREE_2011-10-20-16-18-02-220.jpg' 
     fname2 = 'TREE_2012-01-17-12-28-29_KO6L4705-274.jpg'
+    #fname1 = 'TREE_2012-01-17-12-28-29_KO6L4705-274.jpg'
 
     img1 = io.imread(os.path.join(path, fname1))
     img2 = io.imread(os.path.join(path, fname2))
@@ -238,6 +341,16 @@ if __name__ == "__main__":
     ax2=plt.subplot(122)
     ax2.set_title('Reference')
     im2_sel=LandmarkSelector(ax2, img2)
+
+    from matplotlib.widgets import Button
+    ax_button = plt.axes([0.15, 0.05, 0.2, 0.1])
+    button = Button(ax_button, 'Copy landmarks')
+    def on_clicked(event):
+        global corr
+        xy = im2_sel.landmarks[0,:]
+        im_patch = im2_sel.get_patch(xy,150)
+        corr = im1_sel.autofind_landmark(im_patch,xy)
+    button.on_clicked(on_clicked)
 
     plt.show()
     coords_reg = im1_sel.landmarks

@@ -142,6 +142,30 @@ cdef inline void _matrix_transform(double x, double y, double* H, double *x_,
     y_[0] = yy / zz
 
 
+def correlate(np.ndarray image, np.ndarray patch):
+    
+    cdef np.ndarray[dtype=np.double_t, ndim=2, mode="c"] img = \
+         np.ascontiguousarray(image, dtype=np.double)
+    cdef np.ndarray[dtype=np.double_t, ndim=2, mode="c"] p = \
+         np.ascontiguousarray(patch, dtype=np.double)
+    
+    cdef int out_r, out_c
+    out_r = img.shape[0]
+    out_c = img.shape[1]
+
+    cdef int p_r, p_c
+    p_r = p.shape[0]
+    p_c = p.shape[1]
+
+
+    
+    cdef np.ndarray[dtype=np.double_t, ndim=2] out = \
+         np.zeros((out_r, out_c), dtype=np.uint8)
+
+    #for r in range(out_r):
+    #    for c in range(out_c):
+    #        for i in range(
+
 def warp_fast_int(np.ndarray image, np.ndarray H, output_shape=None, int order=1,
                mode='constant', int cval=0):
     """Projective transformation (homography).
