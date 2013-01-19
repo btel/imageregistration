@@ -46,10 +46,10 @@ def kernel_correlation(img, patch):
     patch -= patch.mean()
     patch /= patch.std()
 
-    def _kernel(p1,p2):
+    def _kernel(p1=img):
         p1 = p1.copy()
         p1 -= p1.mean(); p1 /= p1.std()
-        c = np.mean(p1*p2)
+        c = np.mean(p1*patch)
         return c
     return _kernel
 
@@ -60,11 +60,12 @@ def kernel_mutualinformation(img,patch, n=20):
     dx = (img.max()-img.min())*1./n 
     dy = (patch.max()-patch.min())*1./n 
     
-    def _kernel(x, y):
+    y = patch.flatten()
+    ny, _ = np.histogram(y, bins_y, density=True)
+    
+    def _kernel(x=img):
         x = x.flatten()
-        y = y.flatten()
         nx, _ = np.histogram(x, bins_x, density=True)
-        ny, _ = np.histogram(y, bins_y, density=True)
         nxy, _,_ = np.histogram2d(x,y,[bins_x, bins_y])
         nxy /= (np.sum(nxy)*dx*dy)
         aux = nxy*1./(nx[:,None]*ny[None,:])
@@ -82,16 +83,12 @@ def correlate(img, patch,kernel=kernel_correlation):
     p_r, p_c = patch.shape
    
     K = kernel(img, patch)
-    for i in range(r):
-        for j in range(c):
-            r_l = np.maximum(0,i-p_r/2) 
-            r_h = np.minimum(r,i+p_r-p_r/2) 
-            c_l = np.maximum(0,j-p_c/2) 
-            c_h = np.minimum(c,j+p_c-p_c/2) 
-            p = patch[r_l-i+p_r/2:r_h-i+p_r/2,
-                      c_l-j+p_c/2:c_h-j+p_c/2]
+    for i in range(p_r/2,r-p_r+p_r/2+1):
+        for j in range(p_c/2, c-p_c+p_c/2+1):
+            r_l, r_h = i-p_r/2, i+p_r-p_r/2 
+            c_l, c_h = j-p_c/2, j+p_c-p_c/2 
             im = img[r_l:r_h, c_l:c_h] 
-            out[i,j] = K(im, p)
+            out[i,j] = K(im)
 
     out[np.isnan(out)]=0
     return out
@@ -209,6 +206,14 @@ class LandmarkSelector:
         
         self.ax.figure.canvas.draw()
 
+    def remove_all_landmarks(self):
+        for m in self.markers:
+            m.remove()
+        self.xs = []
+        self.ys = []
+        self.markers = []
+        self.ax.figure.canvas.draw()
+
 
     def update_landmark(self, i, x, y):
 
@@ -262,9 +267,10 @@ class LandmarkSelector:
         
         h,w = self.img_float.shape
         if xy is not None:
+            p_h, p_w = img_patch.shape
             x,y = xy
-            b,l = np.maximum([0,0], [y-r,x-r])
-            t,r = np.minimum([h,w], [y+r,x+r])
+            b,l = np.maximum([0,0], [y-r-p_h/2,x-r-p_w/2])
+            t,r = np.minimum([h,w], [y+r+p_h/2,x+r+p_w/2])
             img_float = self.img_float[b:t, l:r]
         else:
             l, b = 0,0
@@ -275,16 +281,17 @@ class LandmarkSelector:
         
         corr = correlate(img_float, img_patch,
                          kernel=kernel_mutualinformation)
-        
         y, x = np.unravel_index(corr.argmax(), corr.shape)
         return int((x+0.5)*sub_sample)+l, int((y+0.5)*sub_sample)+b
 
     def find_landmark(self, img_patch, xy=None, r=100):
         subsample = 5
-        self.img_float = img_as_float(self.img[:,:,:].mean(2))
+        
+        if not hasattr(self, 'img_float'):
+            self.img_float = img_as_float(self.img[:,:,:].mean(2))
 
         x,y = self._find_landmark(img_patch, xy, subsample, r)
-        x, y = self._find_landmark(img_patch, (x,y), 1, subsample*5)
+        x, y = self._find_landmark(img_patch, (x,y), 1, subsample)
 
         self.add_landmark(x,y)
 
@@ -354,9 +361,11 @@ if __name__ == "__main__":
     ax_button = plt.axes([0.15, 0.05, 0.2, 0.1])
     button = Button(ax_button, 'Copy landmarks')
     def on_clicked(event):
-        xy = im2_sel.landmarks[0,:]
-        im_patch = im2_sel.get_patch(xy,150)
-        im1_sel.find_landmark(im_patch,xy)
+        im1_sel.remove_all_landmarks()
+        ref_landmarks = im2_sel.landmarks
+        for xy in ref_landmarks:
+            im_patch = im2_sel.get_patch(xy,50)
+            im1_sel.find_landmark(im_patch,xy)
     button.on_clicked(on_clicked)
 
     plt.show()
