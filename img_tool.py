@@ -257,28 +257,36 @@ class LandmarkSelector:
         self.ax.figure.canvas.draw()
 
         return patch
-
-    def autofind_landmark(self, img_patch, xy=None, r=100):
-        sub_sample = 5
-        img_float = img_as_float(self.img[:,:,:].mean(2))
-        h,w = img_float.shape
+    
+    def _find_landmark(self, img_patch, xy, sub_sample, r):
+        
+        h,w = self.img_float.shape
         if xy is not None:
             x,y = xy
             b,l = np.maximum([0,0], [y-r,x-r])
             t,r = np.minimum([h,w], [y+r,x+r])
-            img_float = img_float[b:t, l:r]
+            img_float = self.img_float[b:t, l:r]
         else:
             l, b = 0,0
+            img_float = self.img_float
         
         img_float = img_float[::sub_sample,::sub_sample]
         img_patch = img_patch[::sub_sample,::sub_sample]
-
+        
         corr = correlate(img_float, img_patch,
                          kernel=kernel_mutualinformation)
-        corr /= img_patch.shape[0]*img_patch.shape[1]
+        
         y, x = np.unravel_index(corr.argmax(), corr.shape)
-        self.add_landmark(int((x+0.5)*sub_sample)+l,int((y+0.5)*sub_sample)+b)
-        return corr
+        return int((x+0.5)*sub_sample)+l, int((y+0.5)*sub_sample)+b
+
+    def find_landmark(self, img_patch, xy=None, r=100):
+        subsample = 5
+        self.img_float = img_as_float(self.img[:,:,:].mean(2))
+
+        x,y = self._find_landmark(img_patch, xy, subsample, r)
+        x, y = self._find_landmark(img_patch, (x,y), 1, subsample*5)
+
+        self.add_landmark(x,y)
 
     def get_patch(self, xy, sz=10):
         x, y = xy
@@ -346,10 +354,9 @@ if __name__ == "__main__":
     ax_button = plt.axes([0.15, 0.05, 0.2, 0.1])
     button = Button(ax_button, 'Copy landmarks')
     def on_clicked(event):
-        global corr
         xy = im2_sel.landmarks[0,:]
         im_patch = im2_sel.get_patch(xy,150)
-        corr = im1_sel.autofind_landmark(im_patch,xy)
+        im1_sel.find_landmark(im_patch,xy)
     button.on_clicked(on_clicked)
 
     plt.show()
