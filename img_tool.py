@@ -4,6 +4,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import patches
+from matplotlib import cm 
 from matplotlib.widgets import Button
 from matplotlib.widgets import RectangleSelector
 
@@ -276,7 +277,7 @@ class LandmarkSelector:
 
         return patch
     
-    def _find_landmark(self, img_patch, xy, sub_sample, r):
+    def _find_landmark(self, img_patch, xy, sub_sample, r, debug=False):
         
         h,w = self.img_float.shape
         if xy is not None:
@@ -295,19 +296,30 @@ class LandmarkSelector:
         corr = correlate(img_float, img_patch,
                          kernel=kernel_correlation)
 
-        ax1 = fig_debug.add_subplot(221)
-        ax1.imshow(corr)
-        ax2 = fig_debug.add_subplot(222)
-        ax2.imshow(img_float)
-        ax2 = fig_debug.add_subplot(223)
-        ax2.imshow(img_patch)
-        fig.canvas.draw()
-        raw_input('press enter to continue')
-
         y, x = np.unravel_index(corr.argmax(), corr.shape)
+        
+        if debug:
+            fig_debug = plt.figure()
+            ax1 = fig_debug.add_subplot(221)
+            ax1.imshow(corr, cmap=cm.gray)
+            ax1.plot([x], [y], 'o')
+            ax1.set_title('correlation')
+            ax2 = fig_debug.add_subplot(222)
+            ax2.imshow(img_float, cmap=cm.gray)
+            ax2.imshow(corr, cmap=cm.hot, alpha=0.2)
+            ax2.plot([x], [y], 'o')
+            ax2.set_title('target image')
+            ax3 = fig_debug.add_subplot(223)
+            ax3.imshow(img_patch, cmap=cm.gray, interpolation='nearest')
+            ax3.set_title('patch')
+            fig_debug.canvas.draw()
+            fig_debug.show()
+            raw_input('press enter to continue')
+            plt.close(fig_debug)
+
         return int((x+0.5)*sub_sample)+l, int((y+0.5)*sub_sample)+b
 
-    def find_landmark(self, img_patch, xy=None, r=100):
+    def find_landmark(self, img_patch, xy=None, r=150):
         subsample = 4
         
         if not hasattr(self, 'img_float'):
@@ -464,7 +476,7 @@ def register_landmarks(coords_target, coords_ref):
 
     return est_transform
 
-debug = False
+debug = True
 
 if __name__ == "__main__":
     
@@ -484,8 +496,6 @@ if __name__ == "__main__":
 
     plt.figure()
     reg_before = RegistrationValidator(img1, img2)
-    if debug:
-       fig_debug = plt.figure()
     reg_before.show()
 
     plt.figure()
@@ -499,7 +509,7 @@ if __name__ == "__main__":
     ax_button = plt.axes([0.15, 0.05, 0.2, 0.1])
     button = Button(ax_button, 'Copy landmarks')
     def on_clicked(event):
-        patch_size = 20
+        patch_size = 50
         im1_sel.remove_all_landmarks()
         ref_landmarks = im2_sel.landmarks
         for xy in ref_landmarks:
@@ -517,7 +527,4 @@ if __name__ == "__main__":
     reg_after = RegistrationValidator(img1, img2, est_transform)
     reg_after.set_landmarks(coords_reg, coords_ref)
     
-    if debug:
-       fig_debug = plt.figure()
-
     reg_after.show()
