@@ -456,7 +456,6 @@ class RegistrationValidator:
         self._b_auto = Button(bax_auto, 'Auto')
         self._b_auto.on_clicked(self._on_auto)
 
-        self._rs = RectangleSelector(self.ax, self._on_region_select)
 
     def _on_auto(self, event):
         transform = self.register()
@@ -509,7 +508,7 @@ class RegistrationValidator:
         x0 = np.array([0,0,1, 0])
 
         results = optimize.fmin_powell(obj_func, x0)
-        logging.debug('Automatically found transform: %s' %
+        logging.info('Automatically found transform: %s' %
                       str(list(results)))
         trans = get_transform(results)
       
@@ -526,6 +525,7 @@ class RegistrationValidator:
         self.ax.cla()
         self._show_landmarks()
         self._checkerboard()
+        self._rs = RectangleSelector(self.ax, self._on_region_select)
         self.fig.canvas.draw()
 
 class Application:
@@ -562,6 +562,7 @@ class Application:
         coords_ref = self.im2_sel.landmarks
 
         est_transform = register_landmarks(coords_reg, coords_ref)
+
         self.comparator.reset_transform(est_transform)
         self.comparator.set_landmarks(coords_reg, coords_ref)
         self.comparator.update()
@@ -676,6 +677,8 @@ def register_landmarks(coords_target, coords_ref):
     err_func = landmark_error(coords_target, coords_ref, get_transform)
 
     transform_params,_ = optimize.leastsq(err_func, (0,0,1,0)) 
+    logging.info('Transform parameters estimated from landmarks: '
+                     + str(transform_params))
     est_transform = get_transform(transform_params)
 
     return est_transform
