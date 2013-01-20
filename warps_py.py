@@ -14,11 +14,16 @@ def warp_int(image, inverse_map,  map_args={}, output_shape=None, order=1,
     if matrix is not None:
         # transform all bands
         dims = []
-        for dim in range(image.shape[2]):
-            dims.append(warp_fast_int(image[..., dim], matrix,
-                        output_shape=output_shape,
-                        order=order, mode=mode, cval=cval))
-        out = np.dstack(dims)
+        if image.ndim==3:
+            for dim in range(image.shape[2]):
+                dims.append(warp_fast_int(image[..., dim], matrix,
+                            output_shape=output_shape,
+                            order=order, mode=mode, cval=cval))
+            out = np.dstack(dims)
+        else:
+            out = warp_fast_int(image, matrix,
+                            output_shape=output_shape,
+                            order=order, mode=mode, cval=cval)
     return out
 
 if __name__ == '__main__':

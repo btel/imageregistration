@@ -4,6 +4,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import patches
+from matplotlib.widgets import Button
+from matplotlib.widgets import RectangleSelector
 
 import skimage
 from skimage import img_as_ubyte, img_as_float
@@ -24,6 +26,10 @@ from itertools import cycle
 
 from scipy.stats import gaussian_kde
 from scipy.integrate import dblquad
+
+from warps_py import warp_int 
+
+import logging
 
 def gen_checkerboard(img1, img2, n_blks):
     img_check = view_as_blocks(img1.copy(), n_blks+(3,))
@@ -53,7 +59,7 @@ def kernel_correlation(img, patch):
         return c
     return _kernel
 
-def kernel_mutualinformation(img,patch, n=20):
+def kernel_mutualinformation(img,patch, n=50):
     bins_x = np.linspace(img.min(), img.max(), n)
     bins_y = np.linspace(patch.min(), patch.max(), n)
     eps = np.finfo(np.float64).eps
@@ -65,9 +71,12 @@ def kernel_mutualinformation(img,patch, n=20):
     
     def _kernel(x=img):
         x = x.flatten()
-        nx, _ = np.histogram(x, bins_x, density=True)
-        nxy, _,_ = np.histogram2d(x,y,[bins_x, bins_y])
-        nxy /= (np.sum(nxy)*dx*dy)
+        try:
+            nx, _ = np.histogram(x, bins_x, density=True)
+            nxy, _,_ = np.histogram2d(x,y,[bins_x, bins_y])
+            nxy /= 1.*(np.sum(nxy)*dx*dy)
+        except ValueError:
+            return 0
         aux = nxy*1./(nx[:,None]*ny[None,:])
         aux[np.isnan(aux)] = 0
         mi = np.sum(nxy*np.log(aux+eps))*dx*dy
@@ -208,10 +217,14 @@ class LandmarkSelector:
 
     def remove_all_landmarks(self):
         for m in self.markers:
-            m.remove()
+            try:
+                m.remove()
+            except ValueError:
+                pass
         self.xs = []
         self.ys = []
         self.markers = []
+        self.color_iter = cycle(self.colors)
         self.ax.figure.canvas.draw()
 
 
@@ -280,12 +293,22 @@ class LandmarkSelector:
         img_patch = img_patch[::sub_sample,::sub_sample]
         
         corr = correlate(img_float, img_patch,
-                         kernel=kernel_mutualinformation)
+                         kernel=kernel_correlation)
+
+        ax1 = fig_debug.add_subplot(221)
+        ax1.imshow(corr)
+        ax2 = fig_debug.add_subplot(222)
+        ax2.imshow(img_float)
+        ax2 = fig_debug.add_subplot(223)
+        ax2.imshow(img_patch)
+        fig.canvas.draw()
+        raw_input('press enter to continue')
+
         y, x = np.unravel_index(corr.argmax(), corr.shape)
         return int((x+0.5)*sub_sample)+l, int((y+0.5)*sub_sample)+b
 
     def find_landmark(self, img_patch, xy=None, r=100):
-        subsample = 5
+        subsample = 4
         
         if not hasattr(self, 'img_float'):
             self.img_float = img_as_float(self.img[:,:,:].mean(2))
@@ -317,6 +340,106 @@ class LandmarkSelector:
         return landmarks
 
 
+class RegistrationValidator:
+
+    def __init__(self, target, ref, transform=None):
+        self.im_orig = target
+        self.im_reg = target
+        self.im_ref = ref
+        self.transform = None
+        if transform:
+            self.add_transform(transform)
+        self.n_blks = ref.shape[0]/8, ref.shape[1]/8
+        self._initialize_ui()
+        self.region = None
+
+    def _initialize_ui(self):
+        self.ax = plt.subplot(111)
+        bax_auto = plt.axes([0.1, 0.05, 0.15, 0.05])
+        self._b_auto = Button(bax_auto, 'Auto')
+        self._b_auto.on_clicked(self._on_auto)
+
+        self._rs = RectangleSelector(self.ax, self._on_region_select)
+
+    def _on_auto(self, event):
+        transform = self.register()
+        self.add_transform(transform)
+        self._checkerboard()
+        self.ax.figure.canvas.draw()
+
+    def _on_region_select(self, eclick, erelease):
+        xs = [int(eclick.xdata), int(erelease.xdata)]
+        ys = [int(eclick.ydata), int(erelease.ydata)]
+        xs.sort()
+        ys.sort()
+        self.region = xs+ys 
+
+
+    def add_transform(self, transform):
+        if self.transform is not None:
+            self.transform += transform
+        else:
+            self.transform = transform
+        self.im_reg = warp_int(self.im_orig, self.transform.inverse)
+
+
+    def _checkerboard(self):
+        im_reg = self.im_reg.copy()
+        chboard_after = gen_checkerboard(im_reg, self.im_ref,
+                                         self.n_blks)
+        self.ax.imshow(chboard_after)
+
+    def register(self):
+        im = (self.im_reg.mean(2)).astype(np.uint8)
+        ref = (self.im_ref.mean(2)).astype(np.uint8)
+        if self.region is not None:
+            xmin, xmax, ymin, ymax = self.region
+            im = im[ymin:ymax, xmin:xmax]
+            ref = ref[ymin:ymax, xmin:xmax]
+        
+        obj_func = lambda x: transform_and_compare(im, ref, x,
+                                                  f_cmp=correlation_coefficient)
+        x0 = np.array([0,0,1, 0])
+
+        results = optimize.fmin_powell(obj_func, x0)
+        logging.debug('Automatically found transform: %s' %
+                      str(list(results)))
+        trans = get_transform(results)
+      
+        return trans
+
+    def set_landmarks(self, im1_coords, im2_coords):
+        
+        if self.transform:
+            im1_coords = self.transform(im1_coords)
+            
+        self.ax.plot(im1_coords[:,0], im1_coords[:,1], 'o',ms=10)
+        
+        self.ax.plot(im2_coords[:,0], im2_coords[:,1], 'o', ms=10)
+
+
+
+    def show(self):
+        self._checkerboard()
+        plt.show()
+
+def mutual_information(img1, img2):
+    K = kernel_mutualinformation(img1*1.,img2*1.)
+    return -K()
+
+def correlation_coefficient(img1, img2):
+    return -np.corrcoef(img1.flatten(), img2.flatten())[0][1]
+
+def mean_sq_diff(img1, img2):
+    return ((img1-img2)**2).mean()
+
+def img_diff(img1, img2):
+    return (img1-img2)[img1>0].flatten()
+
+def transform_and_compare(img, img_ref, params, f_cmp=mean_sq_diff):
+    new_transform = get_transform(params)
+    img_new = warp_int(img, new_transform.inverse)
+    return f_cmp(img_new, img_ref)
 
 def get_transform(x):
     dx, dy, s, rot = x
@@ -331,23 +454,39 @@ def landmark_error(coords, coords_ref, transf_factory):
         return err
 
     return _calc_error
+
+def register_landmarks(coords_target, coords_ref):
+
+    err_func = landmark_error(coords_target, coords_ref, get_transform)
+
+    transform_params,_ = optimize.leastsq(err_func, (0,0,1,0)) 
+    est_transform = get_transform(transform_params)
+
+    return est_transform
+
+debug = False
+
 if __name__ == "__main__":
     
     path = '/Users/bartosz/Desktop/TREE/registration/'
     fname1 = 'TREE_2011-10-20-16-18-02-220.jpg' 
     fname2 = 'TREE_2012-01-17-12-28-29_KO6L4705-274.jpg'
     #fname1 = 'TREE_2012-01-17-12-28-29_KO6L4705-274.jpg'
-
+    #fname1='TREE_2011-12-18-12-12-08-257.jpg'
+    
+    logging.basicConfig(level=logging.DEBUG)
     img1 = io.imread(os.path.join(path, fname1))
     img2 = io.imread(os.path.join(path, fname2))
+    # for testing only
+    #simple_translation = get_transform((5,5,1,0.01))
+    #img2 = warp_int(img1, simple_translation.inverse)
 
-    n_blks = img1.shape[0]/8, img1.shape[1]/8
-    print img1.shape
-    
-    chboard_before = gen_checkerboard(img1, img2, n_blks)
+
     plt.figure()
-    plt.imshow(chboard_before)
-    plt.show()
+    reg_before = RegistrationValidator(img1, img2)
+    if debug:
+       fig_debug = plt.figure()
+    reg_before.show()
 
     plt.figure()
     ax1=plt.subplot(121)
@@ -357,32 +496,28 @@ if __name__ == "__main__":
     ax2.set_title('Reference')
     im2_sel=LandmarkSelector(ax2, img2)
 
-    from matplotlib.widgets import Button
     ax_button = plt.axes([0.15, 0.05, 0.2, 0.1])
     button = Button(ax_button, 'Copy landmarks')
     def on_clicked(event):
+        patch_size = 20
         im1_sel.remove_all_landmarks()
         ref_landmarks = im2_sel.landmarks
         for xy in ref_landmarks:
-            im_patch = im2_sel.get_patch(xy,50)
+            im_patch = im2_sel.get_patch(xy,patch_size)
             im1_sel.find_landmark(im_patch,xy)
     button.on_clicked(on_clicked)
-
     plt.show()
+    
     coords_reg = im1_sel.landmarks
     coords_ref = im2_sel.landmarks
 
-    err_func = landmark_error(coords_reg, coords_ref, get_transform)
-
-    transform_params,_ = optimize.leastsq(err_func, (0,0,1,0)) 
-    est_transform = get_transform(transform_params)
-
-    from warps_py import warp_int 
-    img_reg = warp_int(img1, est_transform.inverse)
+    est_transform = register_landmarks(coords_reg, coords_ref)
 
     plt.figure()
-    chboard_after = gen_checkerboard(img_reg.copy(), img2, n_blks)
-    plt.imshow(chboard_after)
-    plt.show()
+    reg_after = RegistrationValidator(img1, img2, est_transform)
+    reg_after.set_landmarks(coords_reg, coords_ref)
+    
+    if debug:
+       fig_debug = plt.figure()
 
-
+    reg_after.show()
