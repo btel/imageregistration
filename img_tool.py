@@ -3,7 +3,8 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import patches
+from matplotlib.path import Path
+from matplotlib.patches import Circle
 from matplotlib import cm 
 from matplotlib.widgets import Button
 from matplotlib.widgets import RectangleSelector
@@ -108,6 +109,19 @@ def correlate(img, patch,kernel=kernel_correlation):
     return out
 
 
+class CrossHair(Circle):
+
+    def __init__(self, xy, radius=5, **kwargs):
+
+        Circle.__init__(self, xy, radius, **kwargs)
+        self._path = Path([[-1, 0], [1,0], [0,-1], [0, 1]],
+                         [Path.MOVETO, Path.LINETO, Path.MOVETO,
+                          Path.LINETO])
+
+    def set_center(self,xy):
+        self.center = xy
+
+
 class LandmarkSelector:
 
     colors = ['r', 'g', 'b', 'c', 'm', 'y', 'w']
@@ -133,7 +147,7 @@ class LandmarkSelector:
         self.ax.set_title(title)
         self.fig = fig
         fig.add_subplot(self.ax)
-        self.marker_radius = 50
+        self.marker_radius = 100.
 
         self.picker_radius = 100
         self.zoom_factor = 5.
@@ -144,7 +158,14 @@ class LandmarkSelector:
                  
         self._init_ui()
 
-    
+
+    def _show_cursor(self, show):
+        root = self.fig.canvas._tkcanvas.winfo_toplevel()
+        if show:
+            root.config(cursor='arrow')
+        else:
+            root.config(cursor='@nullcursor white')
+
     def _init_ui(self):
         self.click_ev = self.fig.canvas.mpl_connect('button_press_event',
                                        self._onclick)
@@ -215,6 +236,7 @@ class LandmarkSelector:
         else:
             self._dragged = self.add_landmark(x,y)
         self.zoom_image((x,y))
+        self._show_cursor(False)
     
     def _right_click(self, event):
         x,y = event.xdata, event.ydata
@@ -239,6 +261,7 @@ class LandmarkSelector:
             for m in self.markers:
                 m.set_radius(self.marker_radius)
             self.ax.figure.canvas.draw()
+        self._show_cursor(True)
 
     def zoom_image(self, center):
         x,y = center
@@ -290,24 +313,16 @@ class LandmarkSelector:
         self.ys[i] = int(y)
        
         m = self.markers[i]
-        color = m.get_facecolor()
+        m.set_center((x,y))
         
-        try:
-            m.remove()
-        except ValueError:
-            #marker was already removed
-            pass
-
-        new_marker = self._add_patch((x,y), color)
-        self.markers[i] = new_marker
         self.ax.figure.canvas.draw()
 
-        return new_marker
+        return m
 
     def _add_patch(self, xy, color):
-        patch = patches.Circle(xy, self.marker_radius, 
-                               edgecolor='none', 
-                              facecolor=color)
+        patch = CrossHair(xy, self.marker_radius, 
+                               edgecolor=color, 
+                              facecolor='none')
         self.ax.add_patch(patch)
         return patch
     
@@ -493,7 +508,7 @@ class RegistrationValidator:
     def _show_landmarks(self):
         if self._coords:
             for c in self._coords:
-                self.ax.plot(c[:,0], c[:,1], 'o',ms=10)
+                self.ax.plot(c[:,0], c[:,1], '+',ms=10)
 
     def register(self):
         im = (self.im_reg.mean(2)).astype(np.uint8)
@@ -690,6 +705,9 @@ if __name__ == "__main__":
     img_path = '/Users/bartosz/Desktop/TREE/registration/'
     fname1 = 'TREE_2011-10-20-16-18-02-220.jpg' 
     fname2 = 'TREE_2012-01-17-12-28-29_KO6L4705-274.jpg'
+
+    fname1='TREE_2011-09-26-08-21-03-192.jpg'
+    fname2='TREE_2011-09-18-07-57-27-184.jpg'
     
     logging.basicConfig(level=logging.DEBUG)
     # for testing only

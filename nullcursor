@@ -1,0 +1,5 @@
+#define t_cur_width 1
+#define t_cur_height 1
+#define t_cur_x_hot 0
+#define t_cur_y_hot 0
+static unsigned char t_cur_bits[] = { 0x00};
