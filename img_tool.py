@@ -10,6 +10,8 @@ from matplotlib.widgets import Button
 from matplotlib.widgets import RectangleSelector
 from matplotlib import gridspec
 
+import tkMessageBox
+
 import skimage
 from skimage import img_as_ubyte, img_as_float
 from skimage import io
@@ -38,10 +40,10 @@ from datetime import datetime
 import shelve
 
 def gen_checkerboard(img1, img2, n_blks):
-    img_check = view_as_blocks(img1.copy(), n_blks+(3,))
+    img1 = img1.copy()
+    img_check = view_as_blocks(img1, n_blks+(3,))
     img2_blks = view_as_blocks(img2, n_blks+(3,))
 
-    #import pdb; pdb.set_trace()
     img_check[:-1:2,:-1:2, :] = img2_blks[:-1:2,:-1:2,:]
     img_check[1::2,1::2, :] = img2_blks[1::2,1::2,:]
     return as_strided(img_check, img1.shape, img1.strides)
@@ -121,6 +123,11 @@ class CrossHair(Circle):
     def set_center(self,xy):
         self.center = xy
 
+def alert(msg, extra_msg=''):
+        
+    tkMessageBox.showinfo("Alert", msg)
+
+    logging.info("%s (%s)" % (msg, extra_msg))
 
 class LandmarkSelector:
 
@@ -136,9 +143,9 @@ class LandmarkSelector:
 
         self.color_iter = cycle(self.colors)
 
-        self.gs = gridspec.GridSpecFromSubplotSpec(2, 3,
+        self.gs = gridspec.GridSpecFromSubplotSpec(3, 3,
                                                    subplot_spec=subplot_spec,
-                                                   height_ratios=[6,1],
+                                                   height_ratios=[8,1,1],
                                                    wspace=0.05,
                                                    hspace=0.05
                                                   )
@@ -174,30 +181,38 @@ class LandmarkSelector:
         self.release_ev = self.fig.canvas.mpl_connect('button_release_event',
                                        self._onrelease)
 
-        ax_load = plt.Subplot(self.fig, self.gs[1,0])
-        ax_save = plt.Subplot(self.fig, self.gs[1,1])
-        ax_reset = plt.Subplot(self.fig, self.gs[1,2])
+        ax_load_img = plt.Subplot(self.fig, self.gs[1,:])
+        ax_load = plt.Subplot(self.fig, self.gs[2,0])
+        ax_save = plt.Subplot(self.fig, self.gs[2,1])
+        ax_reset = plt.Subplot(self.fig, self.gs[2,2])
 
+        self.fig.add_subplot(ax_load_img)
         self.fig.add_subplot(ax_load)
         self.fig.add_subplot(ax_save)
         self.fig.add_subplot(ax_reset)
-
-        self._load_button = Button(ax_load, 'Load')
-        self._load_button.on_clicked(self._on_load)
         
-        self._save_button = Button(ax_save, 'Save')
-        self._save_button.on_clicked(self._on_save)
-        
-        self._reset_button = Button(ax_reset, 'Reset')
-        self._reset_button.on_clicked(self._on_reset)
+        self._load_img_button = Button(ax_load_img, 'Load image')
+        self._load_img_button.on_clicked(self._on_load_image)
 
-    def _on_load(self, event):
+        self._load_button = Button(ax_load, 'Load LMs')
+        self._load_button.on_clicked(self._on_load_landmarks)
+        
+        self._save_button = Button(ax_save, 'Save LMs')
+        self._save_button.on_clicked(self._on_save_landmarks)
+        
+        self._reset_button = Button(ax_reset, 'Reset LMs')
+        self._reset_button.on_clicked(self._on_reset_landmarks)
+
+    def _on_load_image(self, event):
+        pass 
+
+    def _on_load_landmarks(self, event):
         self.load_landmarks()
     
-    def _on_save(self, event):
+    def _on_save_landmarks(self, event):
         self.save_landmarks()
     
-    def _on_reset(self, event):
+    def _on_reset_landmarks(self, event):
         self.remove_all_landmarks()
         
     def imload(self, fname):
@@ -451,14 +466,12 @@ class LandmarkSelector:
 
 class RegistrationValidator:
 
-    def __init__(self, fig, target, ref, transform=None):
-        self.im_orig = target
-        self.im_reg = target
-        self.im_ref = ref
-        self.transform = None
-        if transform:
-            self.add_transform(transform)
-        self.n_blks = ref.shape[0]/8, ref.shape[1]/8
+    def __init__(self, fig, target, ref):
+        self.im1_sel = target
+        self.im2_sel = ref
+        self.im_reg = self.im1_sel.img
+        self.transform = transform.AffineTransform()
+        self.n_blks = ref.img.shape[0]/8, ref.img.shape[1]/8
         self.region = None
         self.fig = fig
         self._coords = []
@@ -470,6 +483,10 @@ class RegistrationValidator:
         bax_auto = plt.axes([0.1, 0.05, 0.15, 0.05])
         self._b_auto = Button(bax_auto, 'Auto')
         self._b_auto.on_clicked(self._on_auto)
+        
+        bax_save = plt.axes([0.25, 0.05, 0.15, 0.05])
+        self._b_save = Button(bax_save, 'Save')
+        self._b_save.on_clicked(self._on_save)
 
 
     def _on_auto(self, event):
@@ -489,30 +506,70 @@ class RegistrationValidator:
     def reset_transform(self, transform=None):
         self.transform = transform
         if transform:
-            self.im_reg = warp_int(self.im_orig, self.transform.inverse)
+            self.im_reg = warp_int(self.im1_sel.img, self.transform.inverse)
+        else:
+            transform = transform.AffineTransform()
+            self.im_reg = self.im1_sel.img
 
     def add_transform(self, transform):
         if self.transform is not None:
             self.transform += transform
         else:
             self.transform = transform
-        self.im_reg = warp_int(self.im_orig, self.transform.inverse)
+        self.im_reg = warp_int(self.im1_sel.img, self.transform.inverse)
 
 
     def _checkerboard(self):
-        im_reg = self.im_reg.copy()
-        chboard_after = gen_checkerboard(im_reg, self.im_ref,
+        im_reg = self.im_reg
+        im_ref = self.im2_sel.img
+        chboard_after = gen_checkerboard(im_reg, im_ref,
                                          self.n_blks)
         self.ax.imshow(chboard_after)
 
     def _show_landmarks(self):
-        if self._coords:
-            for c in self._coords:
-                self.ax.plot(c[:,0], c[:,1], '+',ms=10)
+        coords = []
+        if len(self.im1_sel.landmarks)>0:
+            im1_coords = self.transform(self.im1_sel.landmarks)
+            coords.append(im1_coords)
+        if len(self.im2_sel.landmarks)>0:
+            coords.append(self.im2_sel.landmarks)
+        for c in coords:
+            self.ax.plot(c[:,0], c[:,1], '+',ms=10)
+    
+    def _on_save(self, event):
+        transform = self.transform
+
+        fname_target = self.im1_sel.fname
+        fname_ref = self.im1_sel.fname
+        
+        
+        if transform is None:
+            alert('Transform not defined. Nothing was saved!')
+            logging.warning('Save attempted without transform defined'
+                          ' (%s - %s)' % (fname_target, fname_ref))
+            return
+
+        params = map(str, list(transform._matrix.flatten()))
+        now = datetime.now()
+
+        timestamp = now.strftime("%d/%m/%Y %H:%M") 
+
+        line = ",".join([timestamp, 
+                        fname_target, 
+                        fname_ref]+
+                        params)+'\n'
+        
+        with file('transforms.txt', 'r') as fid_read:
+            if line in fid_read:
+                alert('Transform already saved', line)
+                return
+        with file('transforms.txt', 'a') as fid:
+            fid.write(line)
+        alert('Transform saved')
 
     def register(self):
-        im = (self.im_reg.mean(2)).astype(np.uint8)
-        ref = (self.im_ref.mean(2)).astype(np.uint8)
+        im = (self.im1_sel.mean(2)).astype(np.uint8)
+        ref = (self.im2_sel.mean(2)).astype(np.uint8)
         if self.region is not None:
             xmin, xmax, ymin, ymax = self.region
             im = im[ymin:ymax, xmin:xmax]
@@ -529,15 +586,18 @@ class RegistrationValidator:
       
         return trans
 
-    def set_landmarks(self, im1_coords, im2_coords):
-        
-        if self.transform:
-            im1_coords = self.transform(im1_coords)
-
-        self._coords = [im1_coords, im2_coords]
+    def landmark_register(self):
+        coords_reg = self.im1_sel.landmarks
+        coords_ref = self.im2_sel.landmarks
+        if len(coords_reg)==0 or len(coords_ref)==0:
+            return
+        est_transform = register_landmarks(coords_reg, coords_ref)
+        self.reset_transform(est_transform)
 
     def update(self):
+
         self.ax.cla()
+        self.landmark_register()
         self._show_landmarks()
         self._checkerboard()
         self._rs = RectangleSelector(self.ax, self._on_region_select)
@@ -556,8 +616,8 @@ class Application:
 
         self._comp_fig = plt.figure()
         self.comparator = RegistrationValidator(self._comp_fig,
-                                                self.im1_sel.img, 
-                                                self.im2_sel.img)
+                                                self.im1_sel, 
+                                                self.im2_sel)
         
         self._gs = gs
         self._init_panel()
@@ -573,60 +633,12 @@ class Application:
             im1_sel.find_landmark(im_patch,xy)
 
     def _on_register(self, event):
-        coords_reg = self.im1_sel.landmarks
-        coords_ref = self.im2_sel.landmarks
+        self.comparator.im1_sel = self.im1_sel
+        self.comparator.im2_sel = self.im2_sel
 
-        est_transform = register_landmarks(coords_reg, coords_ref)
-
-        self.comparator.reset_transform(est_transform)
-        self.comparator.set_landmarks(coords_reg, coords_ref)
         self.comparator.update()
 
-    def _on_save(self, event):
-        transform = self.comparator.transform
 
-        fname_target = self.im1_sel.fname
-        fname_ref = self.im1_sel.fname
-        
-        
-        if transform is None:
-            self.alert('Transform not defined. Nothing was saved!')
-            logging.warning('Save attempted without transform defined'
-                          ' (%s - %s)' % (fname_target, fname_ref))
-            return
-
-        params = map(str, list(transform._matrix.flatten()))
-        now = datetime.now()
-
-        timestamp = now.strftime("%d/%m/%Y %H:%M") 
-
-        line = ",".join([timestamp, 
-                        fname_target, 
-                        fname_ref]+
-                        params)+'\n'
-        
-        with file('transforms.txt', 'r') as fid_read:
-            if line in fid_read:
-                self.alert('Transform already saved', line)
-                return
-        with file('transforms.txt', 'a') as fid:
-            fid.write(line)
-        self.alert('Transform saved')
-
-    def _on_load_landmarks(self, event):
-        self.im1_sel.load_landmarks()
-        self.im2_sel.load_landmarks()
-    
-    def _on_save_landmarks(self, event):
-        self.im1_sel.save_landmarks()
-        self.im2_sel.save_landmarks()
-
-    def alert(self,msg, extra_msg=''):
-        
-        import tkMessageBox
-        tkMessageBox.showinfo("Alert", msg)
-
-        logging.info("%s (%s)" % (msg, extra_msg))
 
     def _init_panel(self):
         
@@ -636,20 +648,15 @@ class Application:
                                                    subplot_spec=self._gs[1,:])
         ax_copy = plt.Subplot(self.fig, self._gs_panel[0])
         ax_register = plt.Subplot(self.fig, self._gs_panel[1])
-        ax_save = plt.Subplot(self.fig, self._gs_panel[2])
         
         self.fig.add_subplot(ax_copy)
         self.fig.add_subplot(ax_register)
-        self.fig.add_subplot(ax_save)
 
         self._copy_button = Button(ax_copy, 'Copy\nlandmarks')
         self._copy_button.on_clicked(self._on_copy)
         
         self._register_button = Button(ax_register, 'Register')
         self._register_button.on_clicked(self._on_register)
-        
-        self._save_button = Button(ax_save, 'Save\ntransform')
-        self._save_button.on_clicked(self._on_save)
         
     def run(self):
         plt.show()
