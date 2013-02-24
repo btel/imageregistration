@@ -11,6 +11,7 @@ from matplotlib.widgets import RectangleSelector
 from matplotlib import gridspec
 
 import tkMessageBox
+import tkFileDialog
 
 import skimage
 from skimage import img_as_ubyte, img_as_float
@@ -133,11 +134,14 @@ class LandmarkSelector:
 
     colors = ['r', 'g', 'b', 'c', 'm', 'y', 'w']
 
-    def __init__(self, fig, subplot_spec, fname, title=''):
+    def __init__(self, parent, subplot_spec, fname, title=''):
 
         self.xs = []
         self.ys = []
         self.markers = []
+        
+        self.fig = parent.fig
+        self.parent = parent
 
         self.imload(fname)
 
@@ -150,10 +154,9 @@ class LandmarkSelector:
                                                    hspace=0.05
                                                   )
 
-        self.ax = plt.Subplot(fig, self.gs[0,:])
+        self.ax = plt.Subplot(self.fig, self.gs[0,:])
         self.ax.set_title(title)
-        self.fig = fig
-        fig.add_subplot(self.ax)
+        self.fig.add_subplot(self.ax)
         self.marker_radius = 100.
 
         self.picker_radius = 100
@@ -164,6 +167,11 @@ class LandmarkSelector:
         self.zoom_axes = None
                  
         self._init_ui()
+
+    def _update_image(self):
+        self.ax.imshow(self.img)
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
 
 
     def _show_cursor(self, show):
@@ -204,7 +212,13 @@ class LandmarkSelector:
         self._reset_button.on_clicked(self._on_reset_landmarks)
 
     def _on_load_image(self, event):
-        pass 
+        fname = tkFileDialog.askopenfilename()
+        if not fname:
+            return
+        self.imload(fname)
+        self._update_image()
+        self.remove_all_landmarks()
+        self.parent.update()
 
     def _on_load_landmarks(self, event):
         self.load_landmarks()
@@ -503,12 +517,12 @@ class RegistrationValidator:
         self.region = xs+ys 
 
     
-    def reset_transform(self, transform=None):
-        self.transform = transform
-        if transform:
+    def reset_transform(self, transform_=None):
+        self.transform = transform_
+        if transform_:
             self.im_reg = warp_int(self.im1_sel.img, self.transform.inverse)
         else:
-            transform = transform.AffineTransform()
+            self.transform = transform.AffineTransform()
             self.im_reg = self.im1_sel.img
 
     def add_transform(self, transform):
@@ -597,6 +611,7 @@ class RegistrationValidator:
     def update(self):
 
         self.ax.cla()
+        self.reset_transform()
         self.landmark_register()
         self._show_landmarks()
         self._checkerboard()
@@ -611,8 +626,8 @@ class Application:
         gs = gridspec.GridSpec(2,2, height_ratios=[8,1],wspace=0.05,
                               hspace=0.05, left=0.05, right=0.95,
                                top=0.95)
-        self.im1_sel = LandmarkSelector(self.fig, gs[0,0], img1, 'Target')
-        self.im2_sel = LandmarkSelector(self.fig, gs[0,1], img2, 'Reference')
+        self.im1_sel = LandmarkSelector(self, gs[0,0], img1, 'Target')
+        self.im2_sel = LandmarkSelector(self, gs[0,1], img2, 'Reference')
 
         self._comp_fig = plt.figure()
         self.comparator = RegistrationValidator(self._comp_fig,
@@ -638,7 +653,8 @@ class Application:
 
         self.comparator.update()
 
-
+    def update(self):
+        self.comparator.update()
 
     def _init_panel(self):
         
