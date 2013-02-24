@@ -155,7 +155,7 @@ class LandmarkSelector:
                                                   )
 
         self.ax = plt.Subplot(self.fig, self.gs[0,:])
-        self.ax.set_title(title)
+        self.ax.set_title("%s\n(%s)" % (title, fname), size=10)
         self.fig.add_subplot(self.ax)
         self.marker_radius = 100.
 
@@ -501,6 +501,10 @@ class RegistrationValidator:
         bax_save = plt.axes([0.25, 0.05, 0.15, 0.05])
         self._b_save = Button(bax_save, 'Save')
         self._b_save.on_clicked(self._on_save)
+        
+        bax_reset = plt.axes([0.40, 0.05, 0.15, 0.05])
+        self._b_reset = Button(bax_reset, 'Clear sel')
+        self._b_reset.on_clicked(self._on_reset_region)
 
 
     def _on_auto(self, event):
@@ -514,8 +518,16 @@ class RegistrationValidator:
         ys = [int(eclick.ydata), int(erelease.ydata)]
         xs.sort()
         ys.sort()
-        self.region = xs+ys 
+        self.region = xs+ys
+        self.ax.set_xlim(xs)
+        self.ax.set_ylim(ys[::-1])
+        self.ax.figure.canvas.draw()
 
+    def _on_reset_region(self, event):
+        self.region=None
+        self.ax.set_xlim(0,self.im_reg.shape[1])
+        self.ax.set_ylim(self.im_reg.shape[0],0)
+        self.ax.figure.canvas.draw()
     
     def reset_transform(self, transform_=None):
         self.transform = transform_
@@ -524,6 +536,7 @@ class RegistrationValidator:
         else:
             self.transform = transform.AffineTransform()
             self.im_reg = self.im1_sel.img
+        self._checkerboard()
 
     def add_transform(self, transform):
         if self.transform is not None:
@@ -531,7 +544,18 @@ class RegistrationValidator:
         else:
             self.transform = transform
         self.im_reg = warp_int(self.im1_sel.img, self.transform.inverse)
+        self._checkerboard()
 
+    @property
+    def transform_description(self):
+        x, y = self.transform.translation
+        s_x, s_y = self.transform.scale
+        rot = 180*self.transform.rotation/np.pi
+
+        description = ((r"x=%d, y=%d, s$_x$=%.2f, s$_y$=%.2f" 
+                       r" $\alpha$=%.2f$^{\circ}$") %
+                       (x, y, s_x, s_y, rot))
+        return description
 
     def _checkerboard(self):
         im_reg = self.im_reg
@@ -539,6 +563,10 @@ class RegistrationValidator:
         chboard_after = gen_checkerboard(im_reg, im_ref,
                                          self.n_blks)
         self.ax.imshow(chboard_after)
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
+
+        self.ax.set_title(self.transform_description)
 
     def _show_landmarks(self):
         coords = []
@@ -582,8 +610,8 @@ class RegistrationValidator:
         alert('Transform saved')
 
     def register(self):
-        im = (self.im1_sel.mean(2)).astype(np.uint8)
-        ref = (self.im2_sel.mean(2)).astype(np.uint8)
+        im = (self.im_reg.mean(2)).astype(np.uint8)
+        ref = (self.im2_sel.img.mean(2)).astype(np.uint8)
         if self.region is not None:
             xmin, xmax, ymin, ymax = self.region
             im = im[ymin:ymax, xmin:xmax]
