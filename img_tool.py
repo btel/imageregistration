@@ -179,7 +179,7 @@ class LandmarkSelector:
         if show:
             root.config(cursor='arrow')
         else:
-            root.config(cursor='@nullcursor white')
+            root.config(cursor='none')
 
     def _init_ui(self):
         self.click_ev = self.fig.canvas.mpl_connect('button_press_event',
@@ -244,7 +244,7 @@ class LandmarkSelector:
         if event.inaxes==self.ax:
             if event.button==1:
                 self._left_click(event)
-            elif event.button==2:
+            elif event.button==3:
                 self._right_click(event)
 
     def _picker(self, xy):
@@ -360,6 +360,8 @@ class LandmarkSelector:
         try:
             i = self.xs.index(nan)
             patch = self.update_landmark(i, x,y)
+            self.ax.add_patch(patch)
+            self.ax.figure.canvas.draw()
             return patch
         except ValueError:
             pass
