@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 #coding=utf-8
-
+import matplotlib
+matplotlib.use("TkAgg")
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.path import Path
@@ -161,7 +162,7 @@ class LandmarkSelector:
 
         self.picker_radius = 100
         self.zoom_factor = 5.
-        imshow(self.img, self.ax)
+        self._update_image()
 
         self._dragged = None
         self.zoom_axes = None
@@ -603,10 +604,13 @@ class RegistrationValidator:
                         fname_ref]+
                         params)+'\n'
         
-        with file('transforms.txt', 'r') as fid_read:
-            if line in fid_read:
-                alert('Transform already saved', line)
-                return
+        try:
+            with file('transforms.txt', 'r') as fid_read:
+                if line in fid_read:
+                    alert('Transform already saved', line)
+                    return
+        except IOError as e:
+		    pass
         with file('transforms.txt', 'a') as fid:
             fid.write(line)
         alert('Transform saved')
@@ -755,7 +759,7 @@ debug = True
 
 if __name__ == "__main__":
     
-    img_path = '/Users/bartosz/Desktop/TREE/registration/'
+    img_path = '.'
     fname1 = 'TREE_2011-10-20-16-18-02-220.jpg' 
     fname2 = 'TREE_2012-01-17-12-28-29_KO6L4705-274.jpg'
 
