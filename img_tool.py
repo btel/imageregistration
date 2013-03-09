@@ -143,6 +143,7 @@ class LandmarkSelector:
         
         self.fig = parent.fig
         self.parent = parent
+        self.title = title
 
         self.imload(fname)
 
@@ -171,6 +172,7 @@ class LandmarkSelector:
 
     def _update_image(self):
         self.ax.imshow(self.img)
+        self.ax.set_title("%s\n(%s)" % (self.title, self.fname), size=10)
         self.ax.set_xticks([])
         self.ax.set_yticks([])
 
@@ -238,7 +240,8 @@ class LandmarkSelector:
             logging.warning('Loading image %s from %s failed: %s' %
                             (fname, img_path, msg))
             return
-        self.fname = fname
+        path, core = os.path.split(fname)
+        self.fname = core
         self.img = img
 
     def _onclick(self, event):
@@ -483,17 +486,23 @@ class LandmarkSelector:
 
 class RegistrationValidator:
 
-    def __init__(self, fig, target, ref):
+    def __init__(self, target, ref):
         self.im1_sel = target
         self.im2_sel = ref
         self.im_reg = self.im1_sel.img
         self.transform = transform.AffineTransform()
         self.n_blks = ref.img.shape[0]/8, ref.img.shape[1]/8
-        self.region = None
-        self.fig = fig
         self._coords = []
-        self._initialize_ui()
+        self._open_figure()
         self.update()
+
+
+    def _open_figure(self):
+        self.fig = plt.figure()
+        self._fig_is_open=True
+        self._initialize_ui()
+        self.region = None
+
 
     def _initialize_ui(self):
         self.ax = self.fig.add_subplot(111)
@@ -509,6 +518,10 @@ class RegistrationValidator:
         self._b_reset = Button(bax_reset, 'Clear sel')
         self._b_reset.on_clicked(self._on_reset_region)
 
+        self.fig.canvas.mpl_connect('close_event', self._on_close)
+
+    def _on_close(self, event):
+        self._fig_is_open=False
 
     def _on_auto(self, event):
         transform = self.register()
@@ -643,7 +656,6 @@ class RegistrationValidator:
         self.reset_transform(est_transform)
 
     def update(self):
-
         self.ax.cla()
         self.reset_transform()
         self.landmark_register()
@@ -663,8 +675,7 @@ class Application:
         self.im1_sel = LandmarkSelector(self, gs[0,0], img1, 'Target')
         self.im2_sel = LandmarkSelector(self, gs[0,1], img2, 'Reference')
 
-        self._comp_fig = plt.figure()
-        self.comparator = RegistrationValidator(self._comp_fig,
+        self.comparator = RegistrationValidator(
                                                 self.im1_sel, 
                                                 self.im2_sel)
         

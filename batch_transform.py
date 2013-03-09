@@ -9,11 +9,13 @@ from warps_py import warp_int
 from skimage import transform
 from skimage import io
 import os
-img_path = '/Users/bartosz/Desktop/TREE/registration/'
+import sys
 
 if __name__ == '__main__':
 
     fname = 'transforms.txt'
+
+    _, path_src, path_target = sys.argv
 
     transforms = np.recfromcsv(fname, names=None)
 
@@ -27,9 +29,10 @@ if __name__ == '__main__':
 
 
     for img, params in imgs.items():
-        im = io.imread(os.path.join(img_path,img))
+        im = io.imread(os.path.join(path_src,img))
         matrix = np.array(params).reshape(3,3)
         trans = transform.AffineTransform(matrix=matrix)
         img_reshaped = warp_int(im, trans.inverse)
-        io.imsave(img, img_reshaped)
+        io.imsave(os.path.join(path_target,img), img_reshaped)
+        print "Processed image %s" % img
 
