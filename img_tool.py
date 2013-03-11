@@ -175,6 +175,7 @@ class LandmarkSelector:
         self.ax.set_title("%s\n(%s)" % (self.title, self.fname), size=10)
         self.ax.set_xticks([])
         self.ax.set_yticks([])
+        self.fig.canvas.draw()
 
 
     def _show_cursor(self, show):
@@ -598,7 +599,7 @@ class RegistrationValidator:
         transform = self.transform
 
         fname_target = self.im1_sel.fname
-        fname_ref = self.im1_sel.fname
+        fname_ref = self.im2_sel.fname
         
         
         if transform is None:
