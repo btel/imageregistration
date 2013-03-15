@@ -461,7 +461,7 @@ class LandmarkSelector:
 
         db = shelve.open('landmarks.db')
 
-        db[self.fname] = self.landmarks
+        db[str(self.fname)] = self.landmarks
 
         db.close()
 
@@ -472,7 +472,7 @@ class LandmarkSelector:
         db = shelve.open('landmarks.db')
 
         try:
-            landmarks = db[self.fname]
+            landmarks = db[str(self.fname)]
         except KeyError:
             logging.debug('Landmarks for %s not found' % self.fname)
             return
