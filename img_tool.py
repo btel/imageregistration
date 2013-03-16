@@ -177,6 +177,8 @@ class LandmarkSelector:
 
     def _update_image(self):
         self.ax.imshow(self.img)
+        logging.info("Loaded image %s (%s)" % (self.fname,
+                                               self.title))
         self.ax.set_title("%s\n(%s)" % (self.title, self.fname), size=10)
         self.ax.set_xticks([])
         self.ax.set_yticks([])
@@ -506,9 +508,6 @@ class RegistrationToolbar:
         self._reg_combo.bind('<<ComboboxSelected>>', 
                              self._reg_params_selected)
 
-        self._test_button = Tk.Button(self.frame, text='TestToolbar')
-        
-        self._test_button.pack(side=Tk.LEFT)
         self._reg_combo.pack(side=Tk.LEFT)
 
     def set_transforms(self, descriptions):
@@ -775,6 +774,7 @@ class Application:
 
     def __init__(self, img1, img2):
         self.root = Tk.Tk()
+        self.root.title('Landmark selection')
         self.fig = Figure()
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
         self.canvas.show()
@@ -881,14 +881,25 @@ debug = True
 
 if __name__ == "__main__":
     
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--debug', '-d', action='store_true')
+
+    args = parser.parse_args()
+
     img_path = '.'
     fname1 = 'TREE_2011-10-20-16-18-02-220.jpg' 
     fname2 = 'TREE_2012-01-17-12-28-29_KO6L4705-274.jpg'
 
     fname1='TREE_2011-09-26-08-21-03-192.jpg'
     fname2='TREE_2011-09-18-07-57-27-184.jpg'
-    
-    logging.basicConfig(level=logging.DEBUG)
+   
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.DEBUG, filename='img_tool.log')
+
     # for testing only
     #simple_translation = get_transform((5,5,1,0.01))
     #img2 = warp_int(img1, simple_translation.inverse)
