@@ -504,7 +504,7 @@ class RegistrationToolbar:
         self._reg_params.set('Current')
         self._reg_combo = ttk.Combobox(self.frame,
                                textvariable=self._reg_params)
-        self._reg_combo.readonly = True
+        self._reg_combo.state(['readonly'])
         self._reg_combo.bind('<<ComboboxSelected>>', 
                              self._reg_params_selected)
 
