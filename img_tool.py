@@ -792,6 +792,7 @@ class Application:
         
         self._gs = gs
         self._init_panel()
+        self.canvas.draw()
 
     def _on_copy(self, event):
         patch_size = 50
