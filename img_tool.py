@@ -3,13 +3,16 @@
 import matplotlib
 matplotlib.use("TkAgg")
 import numpy as np
-import matplotlib.pyplot as plt
 from matplotlib.path import Path
 from matplotlib.patches import Circle
 from matplotlib import cm 
 from matplotlib.widgets import Button
 from matplotlib.widgets import RectangleSelector
 from matplotlib import gridspec
+
+import Tkinter as Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
 import tkMessageBox
 import tkFileDialog
@@ -156,9 +159,9 @@ class LandmarkSelector:
                                                    hspace=0.05
                                                   )
 
-        self.ax = plt.Subplot(self.fig, self.gs[0,:])
+        self.ax = self.fig.add_subplot(self.gs[0,:])
         self.ax.set_title("%s\n(%s)" % (title, fname), size=10)
-        self.fig.add_subplot(self.ax)
+        #self.fig.add_subplot(self.ax)
         self.marker_radius = 100.
 
         self.picker_radius = 100
@@ -193,10 +196,10 @@ class LandmarkSelector:
         self.release_ev = self.fig.canvas.mpl_connect('button_release_event',
                                        self._onrelease)
 
-        ax_load_img = plt.Subplot(self.fig, self.gs[1,:])
-        ax_load = plt.Subplot(self.fig, self.gs[2,0])
-        ax_save = plt.Subplot(self.fig, self.gs[2,1])
-        ax_reset = plt.Subplot(self.fig, self.gs[2,2])
+        ax_load_img = self.fig.add_subplot(self.gs[1,:])
+        ax_load = self.fig.add_subplot(self.gs[2,0])
+        ax_save = self.fig.add_subplot(self.gs[2,1])
+        ax_reset = self.fig.add_subplot(self.gs[2,2])
 
         self.fig.add_subplot(ax_load_img)
         self.fig.add_subplot(ax_load)
@@ -499,7 +502,13 @@ class RegistrationValidator:
 
 
     def _open_figure(self):
-        self.fig = plt.figure()
+        self.root = Tk.Toplevel()
+        self.root.title('Registration')
+        self.fig = Figure()
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas.show()
+        self.canvas.get_tk_widget().pack(side=Tk.TOP, fill=Tk.BOTH, expand=1)
+        
         self._fig_is_open=True
         self._initialize_ui()
         self.region = None
@@ -507,15 +516,15 @@ class RegistrationValidator:
 
     def _initialize_ui(self):
         self.ax = self.fig.add_subplot(111)
-        bax_auto = plt.axes([0.1, 0.05, 0.15, 0.05])
+        bax_auto = self.fig.add_axes([0.1, 0.05, 0.15, 0.05])
         self._b_auto = Button(bax_auto, 'Auto')
         self._b_auto.on_clicked(self._on_auto)
         
-        bax_save = plt.axes([0.25, 0.05, 0.15, 0.05])
+        bax_save = self.fig.add_axes([0.25, 0.05, 0.15, 0.05])
         self._b_save = Button(bax_save, 'Save')
         self._b_save.on_clicked(self._on_save)
         
-        bax_reset = plt.axes([0.40, 0.05, 0.15, 0.05])
+        bax_reset = self.fig.add_axes([0.40, 0.05, 0.15, 0.05])
         self._b_reset = Button(bax_reset, 'Clear sel')
         self._b_reset.on_clicked(self._on_reset_region)
 
@@ -668,7 +677,11 @@ class RegistrationValidator:
 class Application:
 
     def __init__(self, img1, img2):
-        self.fig = plt.figure()
+        self.root = Tk.Tk()
+        self.fig = Figure()
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
+        self.canvas.show()
+        self.canvas.get_tk_widget().pack(side=Tk.TOP, fill=Tk.BOTH, expand=1)
         
         gs = gridspec.GridSpec(2,2, height_ratios=[8,1],wspace=0.05,
                               hspace=0.05, left=0.05, right=0.95,
@@ -708,8 +721,8 @@ class Application:
                                                           wspace=0.05,
                                                           hspace=0.05,
                                                    subplot_spec=self._gs[1,:])
-        ax_copy = plt.Subplot(self.fig, self._gs_panel[0])
-        ax_register = plt.Subplot(self.fig, self._gs_panel[1])
+        ax_copy = self.fig.add_subplot(self._gs_panel[0])
+        ax_register = self.fig.add_subplot(self._gs_panel[1])
         
         self.fig.add_subplot(ax_copy)
         self.fig.add_subplot(ax_register)
@@ -721,7 +734,7 @@ class Application:
         self._register_button.on_clicked(self._on_register)
         
     def run(self):
-        plt.show()
+        Tk.mainloop()
 
 
 def mutual_information(img1, img2):
