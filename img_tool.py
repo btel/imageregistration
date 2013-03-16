@@ -13,6 +13,7 @@ from matplotlib import gridspec
 import Tkinter as Tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+import ttk
 
 import tkMessageBox
 import tkFileDialog
@@ -32,6 +33,7 @@ from numpy.lib.stride_tricks import as_strided
 from numpy import nan
 
 import os
+import csv
 from itertools import cycle
 
 from scipy.stats import gaussian_kde
@@ -487,6 +489,38 @@ class LandmarkSelector:
             self.add_landmark(x,y)
 
 
+class RegistrationToolbar:
+
+    def __init__(self, main_window):
+        self.root = main_window.root
+        self.window = main_window
+        self.frame = Tk.Frame(master=self.root)
+        self._initalize_ui()
+
+    def _initalize_ui(self):
+        self._reg_params = Tk.StringVar()
+        self._reg_params.set('Current')
+        self._reg_combo = ttk.Combobox(self.frame,
+                               textvariable=self._reg_params)
+        self._reg_combo.readonly = True
+        self._reg_combo.bind('<<ComboboxSelected>>', 
+                             self._reg_params_selected)
+
+        self._test_button = Tk.Button(self.frame, text='TestToolbar')
+        
+        self._test_button.pack(side=Tk.LEFT)
+        self._reg_combo.pack(side=Tk.LEFT)
+
+    def set_transforms(self, descriptions):
+        self._reg_combo['values'] = descriptions
+
+    def _reg_params_selected(self, event):
+        id = self._reg_combo.current()
+        self.window.select_saved_transform(id)
+    
+    def update(self):
+        self.frame.pack(side=Tk.BOTTOM, fill=Tk.BOTH, expand=1)
+
 
 class RegistrationValidator:
 
@@ -494,9 +528,13 @@ class RegistrationValidator:
         self.im1_sel = target
         self.im2_sel = ref
         self.im_reg = self.im1_sel.img
+        
         self.transform = transform.AffineTransform()
+        
         self.n_blks = ref.img.shape[0]/8, ref.img.shape[1]/8
         self._coords = []
+
+
         self._open_figure()
         self.update()
 
@@ -508,13 +546,16 @@ class RegistrationValidator:
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.root)
         self.canvas.show()
         self.canvas.get_tk_widget().pack(side=Tk.TOP, fill=Tk.BOTH, expand=1)
-        
+
+        self.toolbar = RegistrationToolbar(self)
+        self.toolbar.update()
+
         self._fig_is_open=True
-        self._initialize_ui()
+        self._initialize_mpl_ui()
         self.region = None
 
 
-    def _initialize_ui(self):
+    def _initialize_mpl_ui(self):
         self.ax = self.fig.add_subplot(111)
         bax_auto = self.fig.add_axes([0.1, 0.05, 0.15, 0.05])
         self._b_auto = Button(bax_auto, 'Auto')
@@ -555,13 +596,19 @@ class RegistrationValidator:
         self.ax.set_ylim(self.im_reg.shape[0],0)
         self.ax.figure.canvas.draw()
     
-    def reset_transform(self, transform_=None):
-        self.transform = transform_
-        if transform_:
-            self.im_reg = warp_int(self.im1_sel.img, self.transform.inverse)
-        else:
-            self.transform = transform.AffineTransform()
-            self.im_reg = self.im1_sel.img
+    def show_transform(self, transform_, date_='new'):
+        logging.info('Showing transform: ' +
+                     self._fmt_transform(transform_, date_))
+        self._transform_date = date_
+        self._selected_transform = transform_
+        self.im_reg = warp_int(self.im1_sel.img, self._selected_transform.inverse)
+        self._checkerboard()
+
+    def reset_transform(self):
+        self._transform_date = 'new'
+        self.transform = transform.AffineTransform()
+        self._selected_transform = self.transform 
+        self.im_reg = self.im1_sel.img
         self._checkerboard()
 
     def add_transform(self, transform):
@@ -574,13 +621,8 @@ class RegistrationValidator:
 
     @property
     def transform_description(self):
-        x, y = self.transform.translation
-        s_x, s_y = self.transform.scale
-        rot = 180*self.transform.rotation/np.pi
-
-        description = ((r"x=%d, y=%d, s$_x$=%.2f, s$_y$=%.2f" 
-                       r" $\alpha$=%.2f$^{\circ}$") %
-                       (x, y, s_x, s_y, rot))
+        description = self._fmt_transform(self._selected_transform,
+                                         self._transform_date)
         return description
 
     def _checkerboard(self):
@@ -594,6 +636,8 @@ class RegistrationValidator:
 
         self.ax.set_title(self.transform_description)
 
+        self.fig.canvas.draw()
+
     def _show_landmarks(self):
         coords = []
         if len(self.im1_sel.landmarks)>0:
@@ -603,7 +647,26 @@ class RegistrationValidator:
             coords.append(self.im2_sel.landmarks)
         for c in coords:
             self.ax.plot(c[:,0], c[:,1], '+',ms=10)
-    
+
+    def _parse_transform(self, p):
+        p = map(float, p)
+        matrix = np.array(p).reshape(3,3)
+        trans = transform.AffineTransform(matrix=matrix)
+        return trans
+   
+    def load_transforms(self):
+        self._transforms_list = []
+        with file('transforms.txt', 'r') as fid:
+            csv_reader = csv.reader(fid)
+            for row in csv_reader:
+                date, target_img, ref_img = row[:3]
+                if (target_img == self.im1_sel.fname and 
+                       ref_img == self.im2_sel.fname):
+
+                    transform_params = row[3:]
+                    trans = self._parse_transform(transform_params)
+                    self._transforms_list.append((date, trans))
+
     def _on_save(self, event):
         transform = self.transform
 
@@ -636,7 +699,9 @@ class RegistrationValidator:
 		    pass
         with file('transforms.txt', 'a') as fid:
             fid.write(line)
-        alert('Transform saved')
+        alert('Transform %s saved' % self._fmt_transform(transform,
+                                                         timestamp))
+        self.update_transform_list()
 
     def register(self):
         im = (self.im_reg.mean(2)).astype(np.uint8)
@@ -662,12 +727,44 @@ class RegistrationValidator:
         coords_ref = self.im2_sel.landmarks
         if len(coords_reg)==0 or len(coords_ref)==0:
             return
-        est_transform = register_landmarks(coords_reg, coords_ref)
-        self.reset_transform(est_transform)
+        self.transform = register_landmarks(coords_reg, coords_ref)
+        self.show_transform(self.transform)
+
+    def _fmt_transform(self, t, date=''):
+        x, y = t.translation
+        s_x, s_y = t.scale
+        rot = 180*t.rotation/np.pi
+        
+        s = "x=%d, y=%d, s=%.2f, rot=%.2f" % (x,y, s_x, rot)
+
+        if date:
+            s += " (%s)" % date
+        
+        return s
+
+
+    def get_transform_descriptions(self):
+        descr = [date for date, t in self._transforms_list]
+        return descr
+            
+
+    def update_transform_list(self):
+        self.load_transforms()
+        descr = self.get_transform_descriptions()
+        self.toolbar.set_transforms(['Current'] + descr)
+
+    def select_saved_transform(self, i):
+        if i == 0:
+            self.show_transform(self.transform)
+        else:
+            date, trans = self._transforms_list[i-1]
+            self._transform_date = date
+            self.show_transform(trans, date)
 
     def update(self):
         self.ax.cla()
         self.reset_transform()
+        self.update_transform_list()
         self.landmark_register()
         self._show_landmarks()
         self._checkerboard()
