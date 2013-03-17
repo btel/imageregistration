@@ -533,6 +533,7 @@ class RegistrationValidator:
         self.n_blks = ref.img.shape[0]/8, ref.img.shape[1]/8
         self._coords = []
 
+        self._check_file()
 
         self._open_figure()
         self.update()
@@ -759,6 +760,17 @@ class RegistrationValidator:
             date, trans = self._transforms_list[i-1]
             self._transform_date = date
             self.show_transform(trans, date)
+
+    def _check_file(self):
+        try:
+            with file("transforms.txt", 'a') as fid:
+                pass
+        except IOError as e:
+            print e
+            logging.error("Could not open transforms.txt in %s (%s)" %
+                        (os.path.abspath(os.curdir), e))
+            raise
+
 
     def update(self):
         self.ax.cla()
