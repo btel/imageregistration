@@ -814,7 +814,11 @@ class RegistrationValidator:
         coords_ref = self.im2_sel.landmarks
         if len(coords_reg)==0 or len(coords_ref)==0:
             return
-        self.transform = register_landmarks(coords_reg, coords_ref)
+        fix_params = (False, False, False, False)
+        self.transform = register_landmarks(coords_reg, coords_ref,
+                                           x0=(0,0,1,0),
+                                           mask=fix_params,
+                                           )
         self.show_transform(self.transform)
 
     def _fmt_transform(self, t, date=''):
@@ -976,14 +980,41 @@ def landmark_error(coords, coords_ref, transf_factory):
 
     return _calc_error
 
-def register_landmarks(coords_target, coords_ref):
+def mask_parameters(func, mask, values):
+    all_params = np.array(values, dtype=np.float)
+    mask = np.array(mask)
+
+    assert len(all_params)==len(mask)
+
+    def func_masked(params):
+        all_params[mask==False] = np.array(params)
+        return func(all_params)
+    return func_masked
+
+def register_landmarks(coords_target, coords_ref, x0=None, mask=None):
+
+    if x0 is None:
+        x0 = (0,0,1,0)
+    if mask is None:
+        mask = (False, ) * len(x0)
+    assert len(mask) == len(x0), "Mask and x0 must have same lengths"
+    logging.info('Running landmark registration with x0=%s and mask=%s' 
+                 % (x0, mask) )
+
+    mask = np.array(mask)
+    all_params = np.array(x0, dtype=np.float)
 
     err_func = landmark_error(coords_target, coords_ref, get_transform)
+    
+    masked_err_func = mask_parameters(err_func, mask, x0)
+    reduced_x0 = all_params[mask==False] 
+    
+    transform_params,_ = optimize.leastsq(masked_err_func, reduced_x0)
 
-    transform_params,_ = optimize.leastsq(err_func, (0,0,1,0)) 
-    logging.info('Transform parameters estimated from landmarks: '
-                     + str(transform_params))
-    est_transform = get_transform(transform_params)
+    all_params[mask==False] = transform_params
+    logging.info('Transform parameters estimated: '
+                     + str(all_params))
+    est_transform = get_transform(all_params)
 
     return est_transform
 
