@@ -83,7 +83,7 @@ def gen_checkerboard(img1, img2, n_blks):
     return as_strided(img_check, img1.shape, img1.strides)
 
 def imshow(im, ax):
-    ax.imshow(im)
+    ax.imshow(im, interpolation='nearest')
     ax.set_xticks([])
     ax.set_yticks([])
 
@@ -203,7 +203,7 @@ class LandmarkSelector:
         self._init_ui()
 
     def _update_image(self):
-        self.ax.imshow(self.img)
+        self.ax.imshow(self.img, interpolation='nearest')
         logging.info("Loaded image %s (%s)" % (self.fname,
                                                self.title))
         self.ax.set_title("%s\n(%s)" % (self.title, self.fname), size=10)
@@ -680,7 +680,7 @@ class RegistrationValidator:
         im_ref = self.im2_sel.img
         chboard_after = gen_checkerboard(im_reg, im_ref,
                                          self.n_blks)
-        self.ax.imshow(chboard_after)
+        self.ax.imshow(chboard_after, interpolation='nearest')
         self.ax.set_xticks([])
         self.ax.set_yticks([])
 
