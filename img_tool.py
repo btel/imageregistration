@@ -21,7 +21,6 @@ import tkFileDialog
 import skimage
 from skimage import img_as_ubyte, img_as_float
 from skimage import io
-from skimage.util.shape import view_as_blocks
 from skimage import transform
 
 from registration import corr
@@ -46,10 +45,38 @@ from datetime import datetime
 
 import shelve
 
+def view_as_blocks(arr_in, block_shape):
+    #modified from skimage.util.shape.view_as_blocks
+    if not isinstance(block_shape, tuple):
+        raise TypeError('block needs to be a tuple')
+
+    block_shape = np.array(block_shape)
+    if (block_shape <= 0).any():
+        raise ValueError("'block_shape' elements must be strictly positive")
+
+    if block_shape.size != arr_in.ndim:
+        raise ValueError("'block_shape' must have the same length "
+                         "as 'arr_in.shape'")
+
+    arr_shape = np.array(arr_in.shape)
+
+    # -- restride the array to build the block view
+    arr_in = np.ascontiguousarray(arr_in)
+
+    new_shape = tuple(arr_shape / block_shape) + tuple(block_shape)
+    new_strides = tuple(arr_in.strides * block_shape) + arr_in.strides
+
+    arr_out = as_strided(arr_in, shape=new_shape, strides=new_strides)
+
+    return arr_out
+
 def gen_checkerboard(img1, img2, n_blks):
+    blk_size = (img1.shape[0]/n_blks,
+                img1.shape[1]/n_blks)
+
     img1 = img1.copy()
-    img_check = view_as_blocks(img1, n_blks+(3,))
-    img2_blks = view_as_blocks(img2, n_blks+(3,))
+    img_check = view_as_blocks(img1, blk_size+(3,))
+    img2_blks = view_as_blocks(img2, blk_size+(3,))
 
     img_check[:-1:2,:-1:2, :] = img2_blks[:-1:2,:-1:2,:]
     img_check[1::2,1::2, :] = img2_blks[1::2,1::2,:]
@@ -500,6 +527,8 @@ class RegistrationToolbar:
         self._initalize_ui()
 
     def _initalize_ui(self):
+        self._reg_combo_label = ttk.Label(self.frame, 
+                                           text='Saved transforms:')
         self._reg_params = Tk.StringVar()
         self._reg_params.set('Current')
         self._reg_combo = ttk.Combobox(self.frame,
@@ -508,7 +537,25 @@ class RegistrationToolbar:
         self._reg_combo.bind('<<ComboboxSelected>>', 
                              self._reg_params_selected)
 
+        self._n_blks_label = ttk.Label(self.frame, 
+                                      text='Checkerboard size:')
+        self._n_blks_var = Tk.StringVar()
+        self._n_blks_var.set(str(self.window.n_blks))
+        self._n_blks_spinbox = Tk.Spinbox(self.frame,
+                                           from_=1.0,
+                                           to=99.0,
+                                           width=2,
+                                           textvariable=self._n_blks_var)
+        self._n_blks_var.trace("w", self._on_nblks_changed)
+
+        self._reg_combo_label.pack(side=Tk.LEFT)
         self._reg_combo.pack(side=Tk.LEFT)
+        self._n_blks_label.pack(side=Tk.LEFT)
+        self._n_blks_spinbox.pack(side=Tk.LEFT)
+
+    def _on_nblks_changed(self, *args):
+        n_blks = self._n_blks_var.get()
+        self.window.set_nblks(int(n_blks))
 
     def set_transforms(self, descriptions):
         self._reg_combo['values'] = descriptions
@@ -518,7 +565,7 @@ class RegistrationToolbar:
         self.window.select_saved_transform(id)
     
     def update(self):
-        self.frame.pack(side=Tk.BOTTOM, fill=Tk.BOTH, expand=1)
+        self.frame.pack(side=Tk.BOTTOM, fill=Tk.X, expand=0)
 
 
 class RegistrationValidator:
@@ -529,8 +576,8 @@ class RegistrationValidator:
         self.im_reg = self.im1_sel.img
         
         self.transform = transform.AffineTransform()
-        
-        self.n_blks = ref.img.shape[0]/8, ref.img.shape[1]/8
+       
+        self.n_blks = 8
         self._coords = []
 
         self._check_file()
@@ -554,6 +601,9 @@ class RegistrationValidator:
         self._initialize_mpl_ui()
         self.region = None
 
+    def set_nblks(self, n):
+        self.n_blks = n
+        self._checkerboard()
 
     def _initialize_mpl_ui(self):
         self.ax = self.fig.add_subplot(111)
