@@ -537,6 +537,8 @@ class RegistrationToolbar:
         self._reg_combo.bind('<<ComboboxSelected>>', 
                              self._reg_params_selected)
 
+        self._delete_button = Tk.Button(self.frame, text='Delete',
+                                         command=self._on_delete)
         self._n_blks_label = ttk.Label(self.frame, 
                                       text='Checkerboard size:')
         self._n_blks_var = Tk.StringVar()
@@ -550,6 +552,7 @@ class RegistrationToolbar:
 
         self._reg_combo_label.pack(side=Tk.LEFT)
         self._reg_combo.pack(side=Tk.LEFT)
+        self._delete_button.pack(side=Tk.LEFT)
         self._n_blks_label.pack(side=Tk.LEFT)
         self._n_blks_spinbox.pack(side=Tk.LEFT)
 
@@ -566,6 +569,8 @@ class RegistrationToolbar:
     def _reg_params_selected(self, event):
         id = self._reg_combo.current()
         self.window.select_saved_transform(id)
+    def _on_delete(self):
+        self.window.delete_current_transform()
     
     def update(self):
         self.frame.pack(side=Tk.BOTTOM, fill=Tk.X, expand=0)
@@ -721,6 +726,34 @@ class RegistrationValidator:
                     trans = self._parse_transform(transform_params)
                     self._transforms_list.append((date, trans))
 
+    def delete_transform(self, date, trans):
+        with file('transforms.txt', 'r') as fid:
+            lines = fid.readlines()
+
+        csv_reader = csv.reader(lines)
+        line_to_delete = -1
+        for i, row in enumerate(csv_reader):
+            row_date, target_img, ref_img = row[:3]
+            if (row_date == date and
+                target_img == self.im1_sel.fname and 
+                ref_img == self.im2_sel.fname):
+
+                transform_params = row[3:]
+                parsed_trans = self._parse_transform(transform_params)
+                if (trans._matrix == parsed_trans._matrix).all():
+                    line_to_delete = i
+                    break
+
+        if line_to_delete>0:
+            deleted_line = lines.pop(i)
+
+            with file('transforms.txt', 'w') as fid:
+                fid.writelines(lines)
+
+            logging.info('Deleted line %s' % deleted_line)
+
+
+
     def _on_save(self, event):
         transform = self.transform
 
@@ -805,13 +838,23 @@ class RegistrationValidator:
     def update_transform_list(self):
         self.load_transforms()
         descr = self.get_transform_descriptions()
-        self.toolbar.set_transforms(['Current'] + descr)
+        self.toolbar.set_transforms(['Current', 'None'] + descr)
+
+    def delete_current_transform(self):
+        self.delete_transform(self._transform_date, 
+                              self._selected_transform)
+        self.update_transform_list()
+        self.show_transform(self.transform)
+        self.toolbar.select_transform('Current')
 
     def select_saved_transform(self, i):
         if i == 0:
             self.show_transform(self.transform)
+        elif i == 1:
+            trans = transform.AffineTransform()
+            self.show_transform(trans, 'none')
         else:
-            date, trans = self._transforms_list[i-1]
+            date, trans = self._transforms_list[i-2]
             self._transform_date = date
             self.show_transform(trans, date)
 
