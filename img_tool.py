@@ -560,6 +560,9 @@ class RegistrationToolbar:
     def set_transforms(self, descriptions):
         self._reg_combo['values'] = descriptions
 
+    def select_transform(self, value):
+        self._reg_params.set(value)
+
     def _reg_params_selected(self, event):
         id = self._reg_combo.current()
         self.window.select_saved_transform(id)
@@ -658,6 +661,7 @@ class RegistrationValidator:
         self._transform_date = 'new'
         self.transform = transform.AffineTransform()
         self._selected_transform = self.transform 
+        self.toolbar.select_transform('Current')
         self.im_reg = self.im1_sel.img
         self._checkerboard()
 
