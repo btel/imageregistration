@@ -517,16 +517,43 @@ class LandmarkSelector:
         for x,y in landmarks:
             self.add_landmark(x,y)
 
-
-class RegistrationToolbar:
+class Toolbar:
 
     def __init__(self, main_window):
         self.root = main_window.root
         self.window = main_window
         self.frame = Tk.Frame(master=self.root)
-        self._initalize_ui()
+        self._initialize_ui()
+    
+    def update(self):
+        self.frame.pack(side=Tk.BOTTOM, fill=Tk.X, expand=0)
 
-    def _initalize_ui(self):
+class ParametersToolbar(Toolbar):
+
+    def _add_checkbutton(self, name, value=True):
+
+        var = Tk.BooleanVar()
+        var.set(value)
+        widget = ttk.Checkbutton(self.frame, text=name, variable=var)
+
+        widget.pack(side=Tk.LEFT)
+        return var, widget
+
+    def _initialize_ui(self):
+        self._label = Tk.Label(self.frame, text='Fit parameters:')
+        self._label.pack(side=Tk.LEFT)
+        
+        self._x_var, self._x_check = self._add_checkbutton('x')
+        self._y_var, self._y_check = self._add_checkbutton('y')
+        self._scale_var, self._scale_check = self._add_checkbutton('scale')
+        self._rot_var, self._rot_check = self._add_checkbutton('rotation')
+
+
+
+class RegistrationToolbar(Toolbar):
+
+
+    def _initialize_ui(self):
         self._reg_combo_label = ttk.Label(self.frame, 
                                            text='Saved transforms:')
         self._reg_params = Tk.StringVar()
@@ -572,8 +599,6 @@ class RegistrationToolbar:
     def _on_delete(self):
         self.window.delete_current_transform()
     
-    def update(self):
-        self.frame.pack(side=Tk.BOTTOM, fill=Tk.X, expand=0)
 
 
 class RegistrationValidator:
@@ -604,6 +629,9 @@ class RegistrationValidator:
 
         self.toolbar = RegistrationToolbar(self)
         self.toolbar.update()
+        
+        self.param_toolbar = ParametersToolbar(self)
+        self.param_toolbar.update()
 
         self._fig_is_open=True
         self._initialize_mpl_ui()
