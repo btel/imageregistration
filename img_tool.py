@@ -543,10 +543,22 @@ class ParametersToolbar(Toolbar):
         self._label = Tk.Label(self.frame, text='Fit parameters:')
         self._label.pack(side=Tk.LEFT)
         
-        self._x_var, self._x_check = self._add_checkbutton('x')
-        self._y_var, self._y_check = self._add_checkbutton('y')
+        self._trans_var, self._trans_check = self._add_checkbutton('translation')
         self._scale_var, self._scale_check = self._add_checkbutton('scale')
         self._rot_var, self._rot_check = self._add_checkbutton('rotation')
+
+
+    @property
+    def translation(self):
+        return self._trans_var.get()
+    
+    @property
+    def scale(self):
+        return self._scale_var.get()
+    
+    @property
+    def rotation(self):
+        return self._rot_var.get()
 
 
 
@@ -699,13 +711,12 @@ class RegistrationValidator:
         self._checkerboard()
 
     def add_transform(self, transform):
-        if self.transform is not None:
-            self.transform += transform
+        if self._selected_transform is not None:
+            self.transform = self._selected_transform + transform
         else:
             self.transform = transform
-        self.im_reg = warp_int(self.im1_sel.img, self.transform.inverse)
-        self._checkerboard()
-
+        self.toolbar.select_transform('Current')
+        self.show_transform(self.transform)
     @property
     def transform_description(self):
         description = self._fmt_transform(self._selected_transform,
@@ -828,21 +839,35 @@ class RegistrationValidator:
         
         obj_func = lambda x: transform_and_compare(im, ref, x,
                                                   f_cmp=correlation_coefficient)
+        mask = self.mask
         x0 = np.array([0,0,1, 0])
 
-        results = optimize.fmin_powell(obj_func, x0)
+        optimizer = wrap_optimizer_masked_params(optimize.fmin_powell,
+                                                mask)
+
+        results = optimizer(obj_func, x0)
         logging.info('Automatically found transform: %s' %
                       str(list(results)))
         trans = get_transform(results)
       
         return trans
 
+    @property
+    def mask(self):
+        tbar = self.param_toolbar
+        fix_params = (not tbar.translation,
+                      not tbar.translation,
+                      not tbar.scale,
+                      not tbar.rotation)
+        return fix_params
+
+
     def landmark_register(self):
         coords_reg = self.im1_sel.landmarks
         coords_ref = self.im2_sel.landmarks
         if len(coords_reg)==0 or len(coords_ref)==0:
             return
-        fix_params = (False, False, False, False)
+        fix_params = self.mask
         self.transform = register_landmarks(coords_reg, coords_ref,
                                            x0=(0,0,1,0),
                                            mask=fix_params,
@@ -1007,6 +1032,28 @@ def landmark_error(coords, coords_ref, transf_factory):
         return err
 
     return _calc_error
+
+def wrap_optimizer_masked_params(optimizer, mask):
+    """Optimizer is a function which takes the function to optimize
+    and intial parameters  and returns optimized paramters.
+
+    Wrapped optimizer takes the same number of parameters
+    but returns parameters with the masked 
+    ones fixed to their initial values."""
+    mask = np.array(mask)
+
+
+    def optimizer_masked(obj_function, params):
+        def masked_obj_function(x):
+            all_params[mask==False] = np.array(x, dtype=np.float)
+            return obj_function(all_params)
+
+        all_params = np.array(params, dtype=np.float)
+        x0 = all_params[mask==False]
+        est_params = optimizer(masked_obj_function, x0)
+        all_params[mask==False] = est_params
+        return all_params
+    return optimizer_masked
 
 def mask_parameters(func, mask, values):
     all_params = np.array(values, dtype=np.float)
